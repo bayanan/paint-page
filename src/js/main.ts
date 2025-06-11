@@ -2,6 +2,9 @@ import { Rectangle } from "./handlers/Rectangle.js";
 import { Circle } from "./handlers/Circle.js";
 import { Line } from "./handlers/Line.js";
 import { Point } from "./type.js";
+import { ShapeFactory } from "./Factory/ShapeFactory.js";
+import { ShapeWrapper } from "./Factory/ShapeFactory.js";
+import './type.js';
 
 
 enum ShapeType {
@@ -11,8 +14,11 @@ enum ShapeType {
 }
 
 let currentShape: ShapeType = ShapeType.Rectangle;
+let selectedShape: ShapeWrapper | null = null;
 
 const canvas = document.getElementById('canvas') as HTMLCanvasElement;
+canvas.width = 1300;
+canvas.height = 680;
 const ctx = canvas.getContext('2d');
 const colorBtn = document.getElementById('color') as HTMLInputElement;
 
@@ -37,30 +43,71 @@ let currentPoint: Point | null = null;
 const shapes: any[] = [];
 
 canvas.addEventListener('mousedown', (e) => {
-  startPoint = getMousePos(e);
+  const point = getMousePos(e);
+
+  selectedShape = null;
+  // Снимаем выделение у всех фигур
+  shapes.forEach(s => s.selected = false);
+
+  // 1. Проверяем клики по "ручкам" изменения размера выделенных фигур
+  for (let i = shapes.length - 1; i >= 0; i--) {
+    const shape = shapes[i];
+
+    if (shape.isResizeHandleHit?.(point)) {
+      selectedShape = shape;
+      shape.selected = true;
+      shape.startResize(point);
+      redraw();
+      return;
+    }
+
+    // 2. Проверяем, попали ли по фигуре для перемещения
+    if (shape.isHit(point)) {
+      selectedShape = shape;
+      shape.selected = true;
+      shape.startMove(point);
+      redraw();
+      return;
+    }
+  }
+
+  // 3. Если не попали ни по одной фигуре, начинаем рисование новой
   isDrawing = true;
+  startPoint = point;
+  currentPoint = point;
 });
 
 canvas.addEventListener('mousemove', (e) => {
-  if (!isDrawing) return;
-  currentPoint = getMousePos(e);
-  redraw();
+  const point = getMousePos(e);
+
+  if (isDrawing) {
+    currentPoint = point;
+    redraw();
+    return;
+  }
+
+  if (selectedShape) {
+    if (selectedShape.isResizing()) {
+      selectedShape.resizeTo(point.x, point.y);
+    } else if (selectedShape.isMoving()) {
+      selectedShape.moveToPoint(point);
+    }
+    redraw();
+  }
 });
 
 canvas.addEventListener('mouseup', (e) => {
-  if (!isDrawing || !startPoint || !currentPoint) return;
-  const color = colorBtn.value;
+  if (isDrawing && startPoint && currentPoint) {
+    const color = colorBtn.value;
+    const shape = ShapeFactory.create(currentShape, startPoint, currentPoint, color);
+    const wrapped = new ShapeWrapper(shape);
+    wrapped.selected = true;
+    shapes.push(wrapped);
+  }
 
-  switch (currentShape) {
-    case ShapeType.Rectangle:
-      shapes.push(new Rectangle(startPoint, currentPoint, color));
-      break;
-    case ShapeType.Circle:
-      shapes.push(new Circle(startPoint, currentPoint, color));
-      break;
-    case ShapeType.Line:
-      shapes.push(new Line(startPoint, currentPoint, color));
-      break;
+  if (selectedShape) {
+    selectedShape.stopResize();
+    selectedShape.stopMove();
   }
 
   isDrawing = false;
@@ -68,6 +115,7 @@ canvas.addEventListener('mouseup', (e) => {
   currentPoint = null;
   redraw();
 });
+
 
 function getMousePos(e: MouseEvent): Point {
   const rect = canvas.getBoundingClientRect();
